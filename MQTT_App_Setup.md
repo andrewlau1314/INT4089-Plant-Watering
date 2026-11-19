@@ -191,4 +191,89 @@ App Store 可試：
 
 ---
 
-*INT4089 Group Project · Mosquitto replaces bemfa.com · Port 1883*
+---
+
+## 9. 網頁 Dashboard 連接 ESP32
+
+Dashboard 唔係用 USB 直接連 ESP32，而係經過電腦上嘅 Mosquitto：網頁用 WebSocket（埠 **9001**）連 broker，ESP32 用 MQTT（埠 **1883**）連同一個 broker。三樣都通，先會見到數據同可以遙控。
+
+### 9.1 準備
+
+1. ESP32、電腦、手機要同一 2.4 GHz Wi‑Fi。
+2. 確認 **Mosquitto Broker** 服務正在運行，而且 1883 同 9001 都在聽：
+   ```powershell
+   Get-Service mosquitto
+   netstat -an | findstr ":1883 :9001"
+   ```
+3. 用 `ipconfig` 抄 **Wireless LAN adapter Wi-Fi** 嘅 IPv4（以下叫 `PC_IP`）。唔好用 `127.0.0.1`，亦唔好用手機 IP。
+4. 把 ESP32 嘅 `MQTT_HOST` 設成呢個 `PC_IP`。換網絡之後可以跑：
+   ```text
+   python tools/ble_sync_wifi.py
+   ```
+   或者用電腦 Chrome 開 dashboard 嘅網頁藍牙。唔需要每次都重新 upload。
+
+### 9.2 開 dashboard 伺服器
+
+喺命令提示字元或 PowerShell：
+
+```text
+cd C:\EDU2628\INT4089\dashboard
+python -m http.server 8080 --bind 0.0.0.0
+```
+
+見到 `Serving HTTP on 0.0.0.0 port 8080` 就成功。呢個視窗唔好關。
+
+**只開一個 8080 伺服器。** 重複執行同一個指令會令 Chrome 出現「這個網頁無法正常運作 / `ERR_EMPTY_RESPONSE`」。如果發生咗，關掉多餘嘅視窗，只留一個，然後重新整理瀏覽器。
+
+### 9.3 用瀏覽器打開同連接
+
+1. 電腦請用 **Chrome** 開 [http://127.0.0.1:8080/](http://127.0.0.1:8080/)。
+2. 手機或其他裝置開 `http://PC_IP:8080/`（要同一 Wi‑Fi）。網頁藍牙喺呢個網址通常不可用；iPhone 不支援網頁藍牙。
+3. Broker host 填 **`PC_IP`**（電腦而家嘅 Wi‑Fi IPv4），埠填 **`9001`**。WebSocket 位址係 `ws://PC_IP:9001`。
+4. **唔好把 broker 填成 `127.0.0.1`。** 頁面可以用本機網址打開，但 MQTT WebSocket 必須連電腦嘅區網 IP，ESP32 先連得到同一個 broker。
+5. 撳連接。成功後會見到感測數值上報。
+
+畫面標記：
+
+| 標記 | 意思 |
+|------|------|
+| T | 溫度 °C |
+| H | 濕度 % |
+| L | 光線 |
+| S | 土壤 % |
+| D | 水位／水深 |
+
+### 9.4 用 dashboard 控制 ESP32
+
+連接成功之後，撳掣或拖滑桿會經 MQTT 傳到 ESP32：
+
+| 功能 | Topic | 內容 |
+|------|-------|------|
+| 開／關泵 | `pump` | `pump_on` / `pump_off` |
+| 自動澆水 | `auto` | `auto_on` / `auto_off`（只有 `auto_on` 先會跑自動邏輯） |
+| 自動追光 | `tracker` | `tracker_on` / `tracker_off`（預設關閉；off 只停自動追光，舵機唔會自己歸位） |
+| 水平／垂直角度 | `pan_set` / `tilt_set` | 角度數值（GPIO25 = pan，GPIO26 = tilt） |
+
+ESP32 會發佈：`wendu`、`shidu`、`light`、`soil`、`water`、`ldr_a1`–`ldr_a4`、`pan`、`tilt`、`tracker_state`。
+
+### 9.5 藍牙配對／同步 Wi‑Fi 同 IP
+
+1. 用電腦 Chrome 開 [http://127.0.0.1:8080/](http://127.0.0.1:8080/)，撳藍牙掣。
+2. 網頁可以把電腦 IP 寫入 ESP32 做 `MQTT_HOST`。如果同時填咗 Wi‑Fi 名稱同密碼，ESP32 會改連同一個網絡。
+3. 瀏覽器唔能自動讀電腦已存嘅 Wi‑Fi 密碼。要自動跟住電腦而家個網絡，請用 `python tools/ble_sync_wifi.py`。
+4. Windows 設定入面 `INT4089-ESP32` 顯示 **Not connected** 係正常：只有程式正在用藍牙時先會顯示 Connected。同步完就會變返 Not connected，唔代表失敗。
+
+### 9.6 排錯
+
+| 症狀 | 檢查 |
+|------|------|
+| Dashboard 顯示 MQTT disconnected／未連線 | Broker 是否最新 `PC_IP`、埠是否 `9001`；換網後要改 host 並重新整理；Mosquitto 是否 Running；防火牆是否已開 9001 |
+| `ERR_EMPTY_RESPONSE`／頁面無法正常運作 | 8080 開咗多個伺服器，只留一個再重新整理 |
+| 頁面打得開但沒有數據 | ESP32 同電腦是否同一 Wi‑Fi；`MQTT_HOST` 是否等於 `PC_IP`；Serial 有無 `MQTT connected` |
+| 手機打不開 dashboard | 用 `http://PC_IP:8080/`，同一 Wi‑Fi，伺服器要用 `--bind 0.0.0.0` |
+| 網頁藍牙失敗 | 必須用電腦 Chrome 開 [http://127.0.0.1:8080/](http://127.0.0.1:8080/)；唔好用 `http://PC_IP:8080/` 做藍牙配對 |
+| 換咗 Wi‑Fi 之後全滅 | 重新 `ipconfig` → 更新 `MQTT_HOST`／broker host → 必要時重跑 `ble_sync_wifi.py` |
+
+---
+
+*INT4089 Group Project · Mosquitto replaces bemfa.com · Port 1883 / WebSocket 9001 / Dashboard :8080*

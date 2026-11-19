@@ -55,16 +55,34 @@ MQTT topics:
 
 Automatic watering runs only after `auto_on`. Tracking runs only after `tracker_on`.
 
-## Dashboard
+## Dashboard: connect to the ESP32
 
-```text
-cd dashboard
-python -m http.server 8080 --bind 0.0.0.0
-```
+The dashboard does not talk to the ESP32 over USB. The web page connects to Mosquitto with WebSocket port **9001**, and the ESP32 connects to the same broker with MQTT port **1883**. All three must be on the same 2.4 GHz Wi-Fi.
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) in Chrome. Run only one server on port 8080. Set the broker host to the computer's Wi-Fi IPv4 and port `9001` (`ws://PC_IP:9001`).
+1. Start the Mosquitto Broker service. Check that ports 1883 and 9001 are listening:
+   ```text
+   Get-Service mosquitto
+   netstat -an | findstr ":1883 :9001"
+   ```
+2. Run `ipconfig` and copy the **Wireless LAN adapter Wi-Fi** IPv4 address (`PC_IP`). This is the broker host. Do not use `127.0.0.1` or a phone IP.
+3. Set the ESP32 `MQTT_HOST` to that `PC_IP`. After changing networks, run `python tools/ble_sync_wifi.py`, or use Web Bluetooth in the dashboard. A re-upload is not required just to change the network.
+4. Start the dashboard server (keep this window open, and run only one copy; two servers on 8080 cause `ERR_EMPTY_RESPONSE`):
+   ```text
+   cd dashboard
+   python -m http.server 8080 --bind 0.0.0.0
+   ```
+5. On the computer, open Chrome at [http://127.0.0.1:8080/](http://127.0.0.1:8080/). On a phone, open `http://PC_IP:8080/` (same Wi-Fi).
+6. In the page, set broker host to `PC_IP` and port `9001` (`ws://PC_IP:9001`). Do not set the broker to `127.0.0.1`. Connect, then sensor values should appear.
 
-A dashboard screenshot is in `dashboard/dashboard-shot.png`. Presentation slides are in `INT4089_Group9_Plant_Watering.pptx`. Wiring notes are in `WIRING_接線說明.md`. Mobile MQTT app notes are in `MQTT_App_Setup.md`.
+Labels: **T** = temperature °C, **H** = humidity %, **L** = light, **S** = soil %, **D** = water level.
+
+Controls: pump (`pump_on` / `pump_off`), auto watering (`auto_on` / `auto_off`), tracker (`tracker_on` / `tracker_off`), and pan/tilt sliders (`pan_set` / `tilt_set`; GPIO25 = pan, GPIO26 = tilt). Auto watering and tracking run only when their modes are on.
+
+Web Bluetooth works in computer Chrome at [http://127.0.0.1:8080/](http://127.0.0.1:8080/). The browser cannot read the saved Wi-Fi password; type it in the page, or use `ble_sync_wifi.py`. iPhone does not support Web Bluetooth. Windows Settings may show `INT4089-ESP32` as Not connected after a sync; that is normal once the GATT session has ended.
+
+If MQTT shows disconnected, the broker host is usually a stale IP, or Mosquitto / firewall port 9001 is not open. If a phone cannot load the page, use `http://PC_IP:8080/` and `--bind 0.0.0.0`.
+
+A dashboard screenshot is in `dashboard/dashboard-shot.png`. Presentation slides are in `INT4089_Group9_Plant_Watering.pptx`. Wiring notes are in `WIRING_接線說明.md`. The same steps in Chinese, plus phone MQTT App setup, are in `MQTT_App_Setup.md`.
 
 ## Not included
 
