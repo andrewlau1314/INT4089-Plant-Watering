@@ -1,0 +1,10 @@
+*.bak
+*.bak-*
+wifi/build/
+build/
+.idea/
+__pycache__/
+*.elf
+*.map
+.DS_Store
+Thumbs.db

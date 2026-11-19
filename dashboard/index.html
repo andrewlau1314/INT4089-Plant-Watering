@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto Watering IoT</title>
+  <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1b2b;
+      --card: #152433;
+      --card-border: #243445;
+      --text: #e8eef5;
+      --muted: #9aa8b6;
+      --green: #22c55e;
+      --red: #ef4444;
+      --blue: #3b82f6;
+      --orange: #f59e0b;
+      --input: #0a1520;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #14324a 0%, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 48px; }
+    header { text-align: center; margin-bottom: 22px; }
+    h1 { margin: 0; font-size: 1.8rem; font-weight: 700; }
+    .sub { color: var(--muted); margin-top: 6px; font-size: 0.92rem; }
+    .status {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 14px; padding: 6px 12px; border-radius: 999px;
+      background: #102030; font-size: 0.85rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
+    .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin: 22px 0 26px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 14px 12px;
+      text-align: center;
+    }
+    .card .label { color: var(--muted); font-size: 0.78rem; margin-bottom: 8px; }
+    .card .value { font-size: 1.25rem; font-weight: 650; }
+    .section { margin: 18px 0 8px; font-weight: 650; }
+    .btns { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 16px; }
+    button {
+      border: 0; color: #fff; font-weight: 700; cursor: pointer;
+      border-radius: 10px; padding: 10px 16px; font-size: 0.92rem;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .on-green { background: var(--green); }
+    .off-red { background: var(--red); }
+    .on-blue { background: var(--blue); }
+    .off-orange { background: var(--orange); }
+    .broker {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px;
+      margin-top: 10px;
+    }
+    label { display: block; color: var(--muted); font-size: 0.8rem; margin: 8px 0 4px; }
+    input[type="text"], input[type="number"] {
+      width: 100%; max-width: 280px;
+      background: var(--input); color: var(--text);
+      border: 1px solid #2a3c4e; border-radius: 8px;
+      padding: 8px 10px; font-size: 0.95rem;
+    }
+    input[type="range"] { width: min(360px, 100%); accent-color: var(--blue); }
+    .row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+    .reconnect { background: #3d4f63; margin-top: 8px; }
+    #log {
+      margin-top: 12px; color: var(--muted); font-size: 0.8rem;
+      white-space: pre-wrap; min-height: 2.4em;
+    }
+    .ldr-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      max-width: 360px;
+    }
+    .hint { color: var(--muted); font-size: 0.8rem; margin: 4px 0 10px; }
+    @media (max-width: 800px) {
+      .cards { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>🌱 Auto Watering IoT</h1>
+      <div class="sub">INT4089 Group Project · MQTT over WebSocket (Mosquitto) · 追光已合併</div>
+      <div class="status"><span class="dot" id="dot"></span><span id="conn">MQTT disconnected</span></div>
+    </header>
+
+    <div class="cards">
+      <div class="card"><div class="label">Temp 溫度 (wendu)</div><div class="value" id="wendu">-- °C</div></div>
+      <div class="card"><div class="label">Humidity 濕度 (shidu)</div><div class="value" id="shidu">-- %</div></div>
+      <div class="card"><div class="label">Light 光照 (light)</div><div class="value" id="light">-- %</div></div>
+      <div class="card"><div class="label">Soil 土壤 (soil)</div><div class="value" id="soil">-- %</div></div>
+      <div class="card"><div class="label">Water 水位 (water)</div><div class="value" id="water">--</div></div>
+    </div>
+
+    <div class="section">Pump 水泵</div>
+    <div class="btns">
+      <button class="on-green" data-topic="pump" data-msg="pump_on">Pump ON 開泵</button>
+      <button class="off-red" data-topic="pump" data-msg="pump_off">Pump OFF 關泵</button>
+    </div>
+
+    <div class="section">Auto 自動模式</div>
+    <div class="btns">
+      <button class="on-blue" data-topic="auto" data-msg="auto_on">Auto ON 開自動</button>
+      <button class="off-orange" data-topic="auto" data-msg="auto_off">Auto OFF 關自動</button>
+    </div>
+
+    <div class="section">Solar tracker 太陽能追光</div>
+    <p class="hint">自動追光時舵機會跟四路光敏轉動。拖動角度會改為手動，並關掉自動追光。</p>
+    <div class="btns">
+      <button class="on-green" data-topic="tracker" data-msg="tracker_on">Tracker ON 開追光</button>
+      <button class="off-red" data-topic="tracker" data-msg="tracker_off">Tracker OFF 關追光</button>
+    </div>
+    <div class="cards" style="grid-template-columns: repeat(4, 1fr); max-width: 640px;">
+      <div class="card"><div class="label">A2 左上</div><div class="value" id="ldr_a2">--</div></div>
+      <div class="card"><div class="label">A4 右上</div><div class="value" id="ldr_a4">--</div></div>
+      <div class="card"><div class="label">A1 左下</div><div class="value" id="ldr_a1">--</div></div>
+      <div class="card"><div class="label">A3 右下</div><div class="value" id="ldr_a3">--</div></div>
+    </div>
+    <div class="broker" style="margin-top:0;">
+      <label>Pan 水平角度（底盤舵機）：<span id="pan">--</span>°</label>
+      <input type="range" id="pan_set" min="15" max="165" value="90" />
+      <label>Tilt 垂直角度（面板舵機）：<span id="tilt">--</span>°</label>
+      <input type="range" id="tilt_set" min="25" max="155" value="90" />
+    </div>
+
+    <div class="broker">
+      <label>Broker host (PC Wi-Fi IP，Mosquitto 所在電腦)</label>
+      <input type="text" id="host" value="10.16.190.170" />
+      <div class="row">
+        <div>
+          <label>WebSocket port</label>
+          <input type="text" id="port" value="9001" />
+        </div>
+        <button class="reconnect" id="reconnect">Reconnect 重新連線</button>
+      </div>
+      <div class="section" style="margin-top:16px;">藍牙配對／同步 Wi‑Fi 同 IP</div>
+      <p class="hint">撳掣後，網頁會把電腦 IP 寫入 ESP32 做 MQTT_HOST。如果同時填咗 Wi‑Fi 名稱同密碼，ESP32 會改連同一個網絡。瀏覽器唔能自動讀電腦嘅 Wi‑Fi 密碼；要自動同步請用電腦腳本 <code>ble_sync_wifi.py</code>。Web Bluetooth 請用電腦 Chrome 開 http://127.0.0.1:8080。手機可用 Serial Bluetooth Terminal 傳送 WIFI_SSID=…、WIFI_PASS=…、MQTT_HOST=電腦IP。iPhone 唔支援網頁藍牙。</p>
+      <label>Wi‑Fi SSID（同電腦同一個網絡）</label>
+      <input type="text" id="wifiSsid" value="" autocomplete="off" />
+      <label>Wi‑Fi 密碼（只傳到 ESP32，唔會顯示喺日誌）</label>
+      <input type="password" id="wifiPass" value="" autocomplete="new-password" />
+      <div class="btns">
+        <button class="reconnect" id="blePair" type="button">藍牙配對／同步 Wi‑Fi 同 IP</button>
+      </div>
+      <div id="bleStatus" class="hint">尚未配對</div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const topics = ["wendu","shidu","light","soil","water","ldr_a1","ldr_a2","ldr_a3","ldr_a4","pan","tilt"];
+    let client = null;
+    const logEl = document.getElementById("log");
+
+    function stamp(msg) {
+      const t = new Date().toLocaleTimeString();
+      logEl.textContent = `[${t}] ${msg}\n` + logEl.textContent.split("\n").slice(0, 6).join("\n");
+    }
+
+    function setConn(ok, detail) {
+      document.getElementById("dot").classList.toggle("on", ok);
+      document.getElementById("conn").textContent = ok
+        ? `MQTT connected / 已連線 · ${detail}`
+        : `MQTT disconnected / 未連線`;
+    }
+
+    function applyValue(topic, value) {
+      const el = document.getElementById(topic);
+      if (!el) return;
+      if (topic === "wendu") el.textContent = value + " °C";
+      else if (topic === "shidu" || topic === "soil" || topic === "light") el.textContent = value + " %";
+      else if (topic === "pan" || topic === "tilt") {
+        el.textContent = value;
+        const slider = document.getElementById(topic + "_set");
+        if (slider && document.activeElement !== slider) slider.value = value;
+      } else {
+        el.textContent = value;
+      }
+    }
+
+    function connect() {
+      if (client) {
+        try { client.end(true); } catch (e) {}
+        client = null;
+      }
+      const host = document.getElementById("host").value.trim();
+      const port = document.getElementById("port").value.trim() || "9001";
+      const url = `ws://${host}:${port}`;
+      setConn(false);
+      stamp("connecting " + url);
+      client = mqtt.connect(url, { reconnectPeriod: 2000, connectTimeout: 8000 });
+      client.on("connect", () => {
+        setConn(true, url);
+        stamp("connected " + url);
+        topics.forEach((t) => client.subscribe(t));
+      });
+      client.on("reconnect", () => stamp("reconnecting " + url));
+      client.on("close", () => setConn(false));
+      client.on("error", (err) => stamp("error: " + (err && err.message ? err.message : err)));
+      client.on("message", (topic, payload) => {
+        applyValue(topic, payload.toString());
+      });
+    }
+
+    function pub(topic, msg) {
+      if (!client || !client.connected) { stamp("not connected"); return; }
+      client.publish(topic, String(msg));
+      stamp("pub " + topic + " = " + msg);
+    }
+
+    document.querySelectorAll("button[data-topic]").forEach((btn) => {
+      btn.addEventListener("click", () => pub(btn.dataset.topic, btn.dataset.msg));
+    });
+    ["pan_set", "tilt_set"].forEach((id) => {
+      const el = document.getElementById(id);
+      el.addEventListener("change", () => pub(id, el.value));
+    });
+    document.getElementById("reconnect").addEventListener("click", connect);
+
+    const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+    const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+    const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+    const bleStatusEl = document.getElementById("bleStatus");
+    let bleBuf = "";
+
+    function isUsableBrokerIp(s) {
+      if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(s)) return false;
+      const p = s.split(".").map(Number);
+      if (p.some((n) => n > 255)) return false;
+      return s !== "127.0.0.1" && s !== "0.0.0.0" && s !== "255.255.255.255";
+    }
+
+    function defaultBrokerHost() {
+      const h = (location.hostname || "").trim();
+      if (isUsableBrokerIp(h)) return h;
+      return "10.16.190.170";
+    }
+
+    function setBleStatus(msg) {
+      bleStatusEl.textContent = msg;
+    }
+
+    function handleBleText(chunk) {
+      bleBuf += chunk;
+      const parts = bleBuf.split(/\r\n|\n|\r/);
+      bleBuf = parts.pop() || "";
+      parts.forEach((line) => {
+        line = line.trim();
+        if (!line) return;
+        stamp("BLE " + line);
+        if (line.startsWith("ESP32_IP=")) {
+          const ip = line.slice(9).trim();
+          setBleStatus("已配對 · ESP32 IP " + ip + " · MQTT_HOST " + document.getElementById("host").value.trim());
+        } else if (line.startsWith("OK MQTT_HOST=")) {
+          const ip = line.slice(13).trim();
+          setBleStatus("已把 MQTT_HOST 同步為 " + ip);
+        } else if (line.startsWith("MQTT_HOST=")) {
+          const ip = line.slice(10).trim();
+          if (isUsableBrokerIp(ip) && !isUsableBrokerIp(document.getElementById("host").value.trim())) {
+            document.getElementById("host").value = ip;
+          }
+        } else if (line.startsWith("WIFI_SSID=") || line.startsWith("OK WIFI_SSID=") || line.startsWith("OK WIFI_JOIN=")) {
+          setBleStatus(line);
+        } else if (line.startsWith("ERR")) {
+          setBleStatus(line);
+        }
+      });
+    }
+
+    async function bleWrite(rx, text) {
+      const payload = new TextEncoder().encode(text);
+      if (rx.writeValueWithoutResponse) {
+        try {
+          await rx.writeValueWithoutResponse(payload);
+          return;
+        } catch (e) { /* fall through to writeValue */ }
+      }
+      await rx.writeValue(payload);
+    }
+
+    async function blePair() {
+      const host = document.getElementById("host").value.trim();
+      if (!isUsableBrokerIp(host)) {
+        const msg = "請先喺 Broker host 填電腦嘅 Wi-Fi IPv4（唔可以係 127.0.0.1 或手機 IP），再配對。";
+        setBleStatus(msg);
+        stamp(msg);
+        return;
+      }
+      if (!navigator.bluetooth) {
+        const msg = "呢個瀏覽器不支援 Web Bluetooth。請用電腦 Chrome 開 http://127.0.0.1:8080，或用「Serial Bluetooth Terminal」連 INT4089-ESP32，傳送 MQTT_HOST=" + host;
+        setBleStatus(msg);
+        stamp(msg);
+        return;
+      }
+      if (!window.isSecureContext) {
+        const msg = "Web Bluetooth 需要安全來源，呢個 http://電腦IP 頁面通常會被擋。請改用電腦 Chrome 開 http://127.0.0.1:8080 再撳配對，或用「Serial Bluetooth Terminal」傳送 MQTT_HOST=" + host;
+        setBleStatus(msg);
+        stamp(msg);
+        return;
+      }
+      try {
+        setBleStatus("選擇裝置 INT4089-ESP32…");
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: "INT4089" }],
+          optionalServices: [NUS_SERVICE]
+        });
+        setBleStatus("正在連線 " + (device.name || "ESP32") + "…");
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(NUS_SERVICE);
+        const tx = await service.getCharacteristic(NUS_TX);
+        const rx = await service.getCharacteristic(NUS_RX);
+        bleBuf = "";
+        await tx.startNotifications();
+        tx.addEventListener("characteristicvaluechanged", (ev) => {
+          handleBleText(new TextDecoder().decode(ev.target.value));
+        });
+        // Give the ESP32 a moment to send ESP32_IP / MQTT_HOST, then push broker IP.
+        await new Promise((r) => setTimeout(r, 500));
+        await bleWrite(rx, "GET\n");
+        await new Promise((r) => setTimeout(r, 250));
+        const ssid = document.getElementById("wifiSsid").value; // keep inner spaces
+        const pass = document.getElementById("wifiPass").value;
+        if (ssid.trim()) {
+          await bleWrite(rx, "WIFI_SSID=" + ssid.trim() + "\n");
+          await new Promise((r) => setTimeout(r, 200));
+          await bleWrite(rx, "WIFI_PASS=" + pass + "\n");
+          await new Promise((r) => setTimeout(r, 200));
+          stamp("BLE wrote WIFI_SSID=" + ssid.trim() + " and WIFI_PASS=****");
+        }
+        await bleWrite(rx, "MQTT_HOST=" + host + "\n");
+        setBleStatus("已傳送 Wi‑Fi／MQTT_HOST=" + host + "，等 ESP32 回覆…");
+        stamp("BLE wrote MQTT_HOST=" + host);
+        device.addEventListener("gattserverdisconnected", () => {
+          stamp("BLE disconnected");
+        });
+      } catch (err) {
+        const msg = "藍牙配對失敗：" + (err && err.message ? err.message : err);
+        setBleStatus(msg);
+        stamp(msg);
+      }
+    }
+
+    document.getElementById("blePair").addEventListener("click", blePair);
+    document.getElementById("host").value = defaultBrokerHost();
+    connect();
+  </script>
+</body>
+</html>
